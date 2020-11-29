@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  
+
+  
+  <title>Hexo</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+  <meta property="og:type" content="website">
+<meta property="og:title" content="Hexo">
+<meta property="og:url" content="http://example.com/index.html">
+<meta property="og:site_name" content="Hexo">
+<meta property="og:locale" content="en_US">
+<meta property="article:author" content="John Doe">
+<meta name="twitter:card" content="summary">
+  
+    <link rel="alternate" href="/atom.xml" title="Hexo" type="application/atom+xml">
+  
+  
+    <link rel="icon" href="/favicon.png">
+  
+  
+    <link href="//fonts.googleapis.com/css?family=Source+Code+Pro" rel="stylesheet" type="text/css">
+  
+  
+<link rel="stylesheet" href="/css/style.css">
+
+<meta name="generator" content="Hexo 5.2.0"></head>
+
+<body>
+  <div id="container">
+    <div id="wrap">
+      <header id="header">
+  <div id="banner"></div>
+  <div id="header-outer" class="outer">
+    <div id="header-title" class="inner">
+      <h1 id="logo-wrap">
+        <a href="/" id="logo">Hexo</a>
+      </h1>
+      
+    </div>
+    <div id="header-inner" class="inner">
+      <nav id="main-nav">
+        <a id="main-nav-toggle" class="nav-icon"></a>
+        
+          <a class="main-nav-link" href="/">Home</a>
+        
+          <a class="main-nav-link" href="/archives">Archives</a>
+        
+      </nav>
+      <nav id="sub-nav">
+        
+          <a id="nav-rss-link" class="nav-icon" href="/atom.xml" title="RSS Feed"></a>
+        
+        <a id="nav-search-btn" class="nav-icon" title="Search"></a>
+      </nav>
+      <div id="search-form-wrap">
+        <form action="//google.com/search" method="get" accept-charset="UTF-8" class="search-form"><input type="search" name="q" class="search-form-input" placeholder="Search"><button type="submit" class="search-form-submit">&#xF002;</button><input type="hidden" name="sitesearch" value="http://example.com"></form>
+      </div>
+    </div>
+  </div>
+</header>
+      <div class="outer">
+        <section id="main">
+  
+    <article id="post-Redux原理解析" class="article article-type-post" itemscope itemprop="blogPost">
+  <div class="article-meta">
+    <a href="/2020/11/29/Redux%E5%8E%9F%E7%90%86%E8%A7%A3%E6%9E%90/" class="article-date">
+  <time datetime="2020-11-29T03:27:20.516Z" itemprop="datePublished">2020-11-29</time>
+</a>
+    
+  </div>
+  <div class="article-inner">
+    
+    
+    <div class="article-entry" itemprop="articleBody">
+      
+        <h1 id="前言"><a href="#前言" class="headerlink" title="前言"></a>前言</h1><p>近日，出于对 Redux 的好奇和想对自己用过的东西知根知底之目的，做了一个 Redux 的自我检测，以便彻底了解其精髓之处。下面我会对使用 Redux 之后产生的疑问做一个清单，用问题导向往下深挖。</p>
+<h2 id="问题清单"><a href="#问题清单" class="headerlink" title="问题清单"></a>问题清单</h2><hr>
+<ol>
+<li>state 初始化如何让全局都能访问到？</li>
+<li>dispatch 之后，Redux 是如何去处理的？</li>
+<li>reducer 是如何处理的？</li>
+<li>state 中的数据被修改之后，订阅者们如何去收到更新后的数据？</li>
+<li>为什么 redux 的精髓在 combineReducer 和 middleware？</li>
+<li>applyMiddleware 中为什么一个临时变量 dispatch 被赋值了 2 次？</li>
+<li>applyMiddleware 中 middlewareAPI 的 dispatch 为什么要用匿名函数包裹？</li>
+<li>React 发送了 dispatch 之后，如何感知 state 的改变？</li>
+<li>hook 的出现是否会影响 Redux 的使用？</li>
+</ol>
+<hr>
+<h2 id="Redux-源码目录简介"><a href="#Redux-源码目录简介" class="headerlink" title="Redux 源码目录简介"></a>Redux 源码目录简介</h2><p>Redux 暴露出来的五个接口：</p>
+<ul>
+<li>createStore （会创建一个 store 及其相应的 dispatch 和 subscribe 操作）</li>
+<li>combineReducers (合并多个 reducer 为一个总的 reducer)</li>
+<li>bindActionCreators (返回包裹 dispatch 的函数可以直接使用。 一般用在 mapDispatchToProps 里)</li>
+<li>applyMiddleware (提供中间件，如 redux-thunk、redux-logger)</li>
+<li>compose (combineReducers 中会用到的工具函数)</li>
+</ul>
+<p>我们将通过上述接口来一一解答我们提出的问题。ps：以下源码均是简化之后的代码</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">dispatch 之后，Redux 是如何去处理的？</span><br><span class="line">state 中的数据被修改之后，页面如何去收到更新后的数据？</span><br></pre></td></tr></table></figure>
+
+<p>这些答案在 createStore.js 中，先来看看代码结构：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br></pre></td><td class="code"><pre><span class="line">createStore(reducer, preloadedState, enhancer) &#123;</span><br><span class="line">  &#x2F;&#x2F; 转换参数</span><br><span class="line">  if (typeof preloadedState &#x3D;&#x3D;&#x3D; &#39;function&#39; &amp;&amp; typeof enhancer &#x3D;&#x3D;&#x3D; &#39;undefined&#39;) &#123;</span><br><span class="line">    enhancer &#x3D; preloadedState</span><br><span class="line">    preloadedState &#x3D; undefined</span><br><span class="line">  &#125;</span><br><span class="line">  let currentReducer &#x3D; reducer &#x2F;&#x2F; 当前的reducer，支持通过 store.replaceReducer 方式动态替换 reducer，为代码热替换提供可能。（之后会写一篇 react-redux 的文章来解读）</span><br><span class="line">  let currentState &#x3D; preloadedState &#x2F;&#x2F; 当前的state</span><br><span class="line">  let currentListeners &#x3D; [] &#x2F;&#x2F; 存储更新函数的数组</span><br><span class="line">  let nextListeners &#x3D; currentListeners &#x2F;&#x2F; 下次dispatch将会触发的更新函数数组</span><br><span class="line">  let isDispatching &#x3D; false &#x2F;&#x2F;类似一把锁，如果正在dispatch action，那么就做一些限制</span><br><span class="line"></span><br><span class="line">  function getState() &#123;</span><br><span class="line">    &#x2F;&#x2F; 返回当前的state， 可以调用store.getState()获取到store中的数据，</span><br><span class="line">    ...</span><br><span class="line">  &#125;</span><br><span class="line"></span><br><span class="line">  function subscribe(listener) &#123;</span><br><span class="line">    &#x2F;&#x2F; 订阅一个更新函数（listener），实际上的订阅操作就是把listener放入一个listeners数组</span><br><span class="line">    &#x2F;&#x2F; 该方法会返回一个 unSubscribe() 函数，以便从数组中删除该监听函数。</span><br><span class="line">    &#x2F;&#x2F; 但是注意，这两个操作都是在dispatch不执行时候进行的。因为dispatch执行时候会循环执行更新函数，要保证listeners数组在这时候不能被改变</span><br><span class="line">    ...</span><br><span class="line">  &#125;</span><br><span class="line"></span><br><span class="line">  function dispatch(action) &#123;</span><br><span class="line">    &#x2F;&#x2F; 接收action，调用reducer根据action和当前的state，返回一个新的state</span><br><span class="line">    &#x2F;&#x2F; 循环调用listeners数组，执行更新函数，函数内部会通过store.getState()获取state，此时的state为最新的state，完成页面的更新</span><br><span class="line">    ...</span><br><span class="line">  &#125;</span><br><span class="line"></span><br><span class="line">  return &#123;</span><br><span class="line">    dispatch,</span><br><span class="line">    subscribe,</span><br><span class="line">    getState,</span><br><span class="line">  &#125;</span><br><span class="line"></span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>我们知道页面可以通过 store.getState() 去获取当前的最新状态，而页面如果修改了数据会发送一个 dispatch(type) ，而这个操作便是问题的关键：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br></pre></td><td class="code"><pre><span class="line">function dispatch(action) &#123;</span><br><span class="line">    if (!isPlainObject(action)) &#123;</span><br><span class="line">      throw new Error(</span><br><span class="line">        &#39;Actions must be plain objects. &#39; +</span><br><span class="line">          &#39;Use custom middleware for async actions.&#39;</span><br><span class="line">      )</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    if (typeof action.type &#x3D;&#x3D;&#x3D; &#39;undefined&#39;) &#123;</span><br><span class="line">      throw new Error(</span><br><span class="line">        &#39;Actions may not have an undefined &quot;type&quot; property. &#39; +</span><br><span class="line">          &#39;Have you misspelled a constant?&#39;</span><br><span class="line">      )</span><br><span class="line">    &#125;</span><br><span class="line">    &#x2F;&#x2F; 正在dispatch的话不能再次dispatch，也就是说不可以同时dispatch两个action</span><br><span class="line">    if (isDispatching) &#123;</span><br><span class="line">      throw new Error(&#39;Reducers may not dispatch actions.&#39;)</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    try &#123;</span><br><span class="line">      isDispatching &#x3D; true</span><br><span class="line">      &#x2F;&#x2F; 获取到当前的state</span><br><span class="line">      currentState &#x3D; currentReducer(currentState, action)</span><br><span class="line">    &#125; finally &#123;</span><br><span class="line">      isDispatching &#x3D; false</span><br><span class="line">    &#125;</span><br><span class="line">&#x2F;&#x2F; 此处的会将 subscribe() 里订阅的监听依次跑一遍，数组里面都是需要获取数据的函数。</span><br><span class="line">    const listeners &#x3D; (currentListeners &#x3D; nextListeners)</span><br><span class="line"></span><br><span class="line">&#x2F;&#x2F; 循环执行当前的linstener</span><br><span class="line">    for (let i &#x3D; 0; i &lt; listeners.length; i++) &#123;</span><br><span class="line">      const listener &#x3D; listeners[i]</span><br><span class="line">      &#x2F;&#x2F; 此处并没有将最新状态作为参数传递的原因是因为在监听器中，我们会直接调用 store.getState() 方法去拿到最新的状态，此处只是起到通知作用。这也是数据被更改之后，页面收到通知而去更新数据的方式。</span><br><span class="line">      listener()</span><br><span class="line">    &#125;</span><br><span class="line">    return action</span><br><span class="line">  &#125;</span><br></pre></td></tr></table></figure>
+
+<p>解答以上问题：</p>
+<p>Q: dispatch 之后，Redux 是如何去处理的？state 中的数据被修改之后，页面如何去收到更新后的数据？</p>
+<p>A: 首先会利用当前的 reducer、state 以及传入的参数 action 得到新的 state， 然后通过触发监听数组中的函数，让函数中的使用的 store.getState() 再次触发，起到通知数据更新的作用。</p>
+<p>基本上 createStore.js 讲完了，接下来看一下 combineReducers.js 来解决以下问题：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">reducer 是如何处理的？</span><br></pre></td></tr></table></figure>
+
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br></pre></td><td class="code"><pre><span class="line">&#x2F;&#x2F; 获取到所有reducer的名字，组成数组</span><br><span class="line">const reducerKeys &#x3D; Object.keys(reducers)</span><br><span class="line">&#x2F;&#x2F; 最终合成的 reducers 集合</span><br><span class="line">const finalReducers &#x3D; &#123;&#125;</span><br><span class="line"> &#x2F;&#x2F; 遍历所有的 reducer 使 finalReducers 变成 key( reducer 名字) ： value( reducer 执行函数)的对象。</span><br><span class="line">for (let i &#x3D; 0; i &lt; reducerKeys.length; i++) &#123;</span><br><span class="line">    const key &#x3D; reducerKeys[i]</span><br><span class="line">    if (typeof reducers[key] &#x3D;&#x3D;&#x3D; &#39;function&#39;) &#123;</span><br><span class="line">      finalReducers[key] &#x3D; reducers[key]</span><br><span class="line">    &#125;</span><br><span class="line">  &#125;</span><br><span class="line">   const finalReducerKeys &#x3D; Object.keys(finalReducers)</span><br><span class="line"></span><br><span class="line">&#x2F;&#x2F; 该函数为 combineReducers.js 核心，主要思路是对传入的 reducer 进行对比，如果任何一个 reducer 返回的 state 与之前的 state 不同，则会返回全新的 state 。(其实这里有个疑问，该函数如果只改了一个 reducer 的 state 数据，都会返回一个全新的 state，为什么会这样处理？)</span><br><span class="line">return function combination (state &#x3D;&#123;&#125;, action)&#123;</span><br><span class="line">    let hasChanged &#x3D; false</span><br><span class="line">    const nextState &#x3D;&#123;&#125;</span><br><span class="line">    for (let i &#x3D;0; i &lt; finalReducerKeys.length; i++) &#123;</span><br><span class="line">        const key &#x3D; finalReducerKeys[i]</span><br><span class="line">        const reducer &#x3D; finalReducers[key]</span><br><span class="line">        &#x2F;&#x2F; 获取每个 reducer 的旧 state</span><br><span class="line">        const previousStateForKey &#x3D; state[key]</span><br><span class="line">        &#x2F;&#x2F; 根据旧 state 推出新的 state (纯函数的优势：相同的 state 和 action 返回的新 state 也会是不变的。)</span><br><span class="line">        const nextStateForKey &#x3D; reducer(previousStateForKey, action)</span><br><span class="line">        if (typeof nextStateForKey &#x3D;&#x3D;&#x3D;&#39;undefined&#39;) &#123;</span><br><span class="line">            const errorMessage &#x3D; getUndefinedStateErrorMessage(key, action)</span><br><span class="line">            throw newError(errorMessage)</span><br><span class="line">        &#125;</span><br><span class="line">        &#x2F;&#x2F; 最后一步 判断是否和之前的 state 是否一致。</span><br><span class="line">        nextState[key]&#x3D; nextStateForKey</span><br><span class="line">        hasChanged &#x3D; hasChanged || nextStateForKey !&#x3D;&#x3D; previousStateForKey</span><br><span class="line"> &#125;</span><br><span class="line">    return hasChanged ? nextState : state</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>前面的都比较容易理解，相对比较绕的就是 applyMiddleware.js,阅读前需了解<a target="_blank" rel="noopener" href="https://zhuanlan.zhihu.com/p/50247174">柯理化</a> 和 node 中间件相关知识, 简单来说就是把一个带有多个参数的函数转换成一系列的嵌套函数。它返回一个新函数，这个新函数期望传入下一个参数。解读 applyMiddleware.js 来回答以下问题：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">为什么一个临时变量 dispatch 被赋值了 2 次？</span><br><span class="line">middlewareAPI 的 dispatch 为什么要用匿名函数包裹？</span><br></pre></td></tr></table></figure>
+
+<p>接下来我们逐一分析源码：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br></pre></td><td class="code"><pre><span class="line">function applyMiddleware(...middlewares) &#123;</span><br><span class="line">  return (createStore) &#x3D;&gt;</span><br><span class="line">      (reducer, preloadedState) &#x3D;&gt; &#123;</span><br><span class="line">        const store &#x3D; createStore(reducer, preloadedState)</span><br><span class="line"></span><br><span class="line">        let dispatch &#x3D; () &#x3D;&gt; &#123;</span><br><span class="line">          throw new Error(</span><br><span class="line">              &#39;Dispatching while constructing your middleware is not allowed. &#39; +</span><br><span class="line">              &#39;Other middleware would not be applied to this dispatch.&#39;</span><br><span class="line">          )</span><br><span class="line">        &#125;</span><br><span class="line"></span><br><span class="line">        const middlewareAPI &#x3D; &#123;</span><br><span class="line">          getState: store.getState,</span><br><span class="line">          dispatch: (action, ...args) &#x3D;&gt; dispatch(action, ...args)</span><br><span class="line">        &#125;</span><br><span class="line">        const chain &#x3D; middlewares.map(middleware &#x3D;&gt; middleware(middlewareAPI))</span><br><span class="line"></span><br><span class="line">        dispatch &#x3D; compose(...chain)(store.dispatch)</span><br><span class="line"></span><br><span class="line">        return &#123;</span><br><span class="line">          ...store,</span><br><span class="line">          dispatch</span><br><span class="line">        &#125;</span><br><span class="line">      &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>可以看到整体构造传入中间件(middlewares),内部函数返回正常的 store 和改造过后的 dispatch。而改造过后的 dispatch 是由 compose(…chain)(store.dispatch) 生成的，首先 compose(…chain) 来自于暴露的第五个接口 compose.js ,它其实就是我们所谓的柯理化处理函数，而 chain 则是一个类似下面的数组形式：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">next &#x3D;&gt; action &#x3D;&gt; &#123;</span><br><span class="line">    return next(action)</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>compose(…chain) 只是将数组中的函数拼接起来，并未执行。且 compose 最后返回的仍然是一个层层包裹的函数。如下：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">const composedFunc &#x3D; (next3) &#x3D;&gt; &#123;</span><br><span class="line">  return</span><br><span class="line">  ((next2) &#x3D;&gt; &#123;</span><br><span class="line">        return func1(func2(next2))</span><br><span class="line">    &#125;)(func3(next3))</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>而真正执行的时候就是在传入这个 dispatch 参数时 compose(…chain)(dispatch)，这个 dispatch 正是上面的 next3，next2 就是 func3(next3) 的返回值，依次类推，得到如下：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">func1(func2(func3(dispatch)));</span><br></pre></td></tr></table></figure>
+
+<figure class="highlight plain"><figcaption><span>realDispatch </span></figcaption><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line">  console.log(&quot;coreFun1 run&quot;);</span><br><span class="line">  ((action) &#x3D;&gt; &#123;</span><br><span class="line">    console.log(&quot;coreFunc2 run&quot;);</span><br><span class="line">    ((action) &#x3D;&gt; &#123;</span><br><span class="line">      console.log(&quot;coreFunc3 run&quot;);</span><br><span class="line">      dispatch(action);</span><br><span class="line">    &#125;)(action);</span><br><span class="line">  &#125;)(action);</span><br><span class="line">&#125;</span><br><span class="line"></span><br></pre></td></tr></table></figure>
+
+<p>根据 node 中间件洋葱模型来看，所有的中间件处理了 action 之后 会往里传递，然后最后在最内层触发 dispatch 之后在将其结果作为参数往外传，最终得到一个全新的函数。</p>
+<p>再顺着源码往上看，</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br></pre></td><td class="code"><pre><span class="line">const store &#x3D; createStore(reducer, preloadedState)</span><br><span class="line"></span><br><span class="line">        let dispatch &#x3D; () &#x3D;&gt; &#123;</span><br><span class="line">          throw new Error(</span><br><span class="line">              &#39;Dispatching while constructing your middleware is not allowed. &#39; +</span><br><span class="line">              &#39;Other middleware would not be applied to this dispatch.&#39;</span><br><span class="line">          )</span><br><span class="line">        &#125; &#x2F;&#x2F; 第一次赋值</span><br><span class="line"></span><br><span class="line">        const middlewareAPI &#x3D; &#123;</span><br><span class="line">          getState: store.getState,</span><br><span class="line">          dispatch: (action, ...args) &#x3D;&gt; dispatch(action, ...args)</span><br><span class="line">        &#125;</span><br><span class="line">const chain &#x3D; middlewares.map(middleware &#x3D;&gt; middleware(middlewareAPI))</span><br><span class="line">dispatch &#x3D; compose(...chain)(store.dispatch) &#x2F;&#x2F; 第二次赋值</span><br></pre></td></tr></table></figure>
+
+<p>这段也主要是为了给每个 middleware 基本的 getState 和 dispatch。<br>解决几个常问到的疑点：</p>
+<ol>
+<li>为什么一个临时变量 dispatch 被赋值了 2 次？<br>首先从第一个变量返回的 throw Error 可以看出这段代码希望在 middleware 数组被构建时， dispatch 不应该被调用，否则抛错。而在 middlewareAPI 的 dispatch 中被调用了一次但没触发这个 throw Error，是因为其实直到给 dispatch 第二次赋值时才真正调用 dispatch（我们之前解读到直到 compose 函数传入了(store.dispatch) 之后才会触发调用），所以这时 middlewareAPI 的 dispatch 并不会触发。</li>
+<li>middlewareAPI 的 dispatch 为什么要用匿名函数包裹？<br>目的就是如果每个 middleware 对 dispatch 有所改变，middleware 里面的 dispatch 也会相应做出改变（如一问中所说，compose(…chain)(store.dispatch) 触发了 middlewareAPI 的 dispatch 被调用）。</li>
+</ol>
+<p>至此解决完 applyMiddleware 的相关问题，redux 的解析也到此结束，如有疑问或者解读错误的地方，还望大佬们指正。</p>
+<p>参考链接：<br><a target="_blank" rel="noopener" href="https://zhuanlan.zhihu.com/p/304688473">读源码理解 Redux Middleware 中间件 - FreewheelLee 的文章</a><br><a target="_blank" rel="noopener" href="https://zhuanlan.zhihu.com/p/34651008">redux 中间件的原理——从懵逼到恍然大悟 - Dell Lee 的文章</a><br><a target="_blank" rel="noopener" href="https://zhuanlan.zhihu.com/p/74279078">简单梳理 Redux 的源码与运行机制 - Nero 的文章</a></p>
+
+      
+    </div>
+    <footer class="article-footer">
+      <a data-url="http://example.com/2020/11/29/Redux%E5%8E%9F%E7%90%86%E8%A7%A3%E6%9E%90/" data-id="cki2sym1o0000my9k74vv7rlq" class="article-share-link">Share</a>
+      
+      
+    </footer>
+  </div>
+  
+</article>
+
+
+  
+
+
+</section>
+        
+          <aside id="sidebar">
+  
+    
+
+  
+    
+
+  
+    
+  
+    
+  <div class="widget-wrap">
+    <h3 class="widget-title">Archives</h3>
+    <div class="widget">
+      <ul class="archive-list"><li class="archive-list-item"><a class="archive-list-link" href="/archives/2020/11/">November 2020</a></li></ul>
+    </div>
+  </div>
+
+
+  
+    
+  <div class="widget-wrap">
+    <h3 class="widget-title">Recent Posts</h3>
+    <div class="widget">
+      <ul>
+        
+          <li>
+            <a href="/2020/11/29/Redux%E5%8E%9F%E7%90%86%E8%A7%A3%E6%9E%90/">(no title)</a>
+          </li>
+        
+      </ul>
+    </div>
+  </div>
+
+  
+</aside>
+        
+      </div>
+      <footer id="footer">
+  
+  <div class="outer">
+    <div id="footer-info" class="inner">
+      &copy; 2020 John Doe<br>
+      Powered by <a href="http://hexo.io/" target="_blank">Hexo</a>
+    </div>
+  </div>
+</footer>
+    </div>
+    <nav id="mobile-nav">
+  
+    <a href="/" class="mobile-nav-link">Home</a>
+  
+    <a href="/archives" class="mobile-nav-link">Archives</a>
+  
+</nav>
+    
+
+<script src="//ajax.googleapis.com/ajax/libs/jquery/2.0.3/jquery.min.js"></script>
+
+
+  
+<link rel="stylesheet" href="/fancybox/jquery.fancybox.css">
+
+  
+<script src="/fancybox/jquery.fancybox.pack.js"></script>
+
+
+
+
+<script src="/js/script.js"></script>
+
+
+
+
+  </div>
+</body>
+</html>
